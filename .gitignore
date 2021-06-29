@@ -127,3 +127,9 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+# logger 
+runs/
+
+# pretrained model
+pretrained_model/
