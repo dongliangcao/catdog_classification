@@ -42,9 +42,11 @@ def train(args):
     # prepare model
     print('##### Prepare Model #####')
     model = VGG16(pretrained_path=args.model_path).cuda()
-
+    # freeze the features layers
+    for param in model.features.parameters():
+        param.requires_grad = False
     # prepare loss and optimizer
-    optimizer = optim.SGD(model.parameters(), lr=args.lr, weight_decay=1e-5)
+    optimizer = optim.SGD(filter(lambda x: x.requires_grad, model.parameters()), lr=args.lr, weight_decay=1e-5)
     criterion = nn.CrossEntropyLoss().cuda()
 
     # optionally resume from a checkpoint

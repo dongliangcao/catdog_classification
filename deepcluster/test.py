@@ -22,13 +22,13 @@ parser.add_argument('--conv', type=int, choices=[1, 2, 3, 4, 5], default=1,
                     help='on top of which convolutional layer train logistic regression')
 parser.add_argument('--tencrops', action='store_true',
                     help='validation accuracy averaged over 10 crops')
-parser.add_argument('--exp', type=str, default='../runs/eval', help='exp folder')
+parser.add_argument('--exp', type=str, default='runs/eval', help='exp folder')
 parser.add_argument('--workers', default=2, type=int,
                     help='number of data loading workers (default: 2)')
 parser.add_argument('--epochs', type=int, default=10, help='number of total epochs to run (default: 10)')
 parser.add_argument('--batch_size', default=32, type=int,
                     help='mini-batch size (default: 32)')
-parser.add_argument('--lr', default=0.0001, type=float, help='learning rate (default: 0.0001)')
+parser.add_argument('--lr', default=0.0005, type=float, help='learning rate (default: 0.0005)')
 parser.add_argument('--momentum', default=0.9, type=float, help='momentum (default: 0.9)')
 parser.add_argument('--weight_decay', '--wd', default=-4, type=float,
                     help='weight decay pow (default: -4)')
@@ -151,35 +151,6 @@ def main():
             'best_prec1': best_prec1,
             'optimizer' : optimizer.state_dict(),
         }, os.path.join(args.exp, filename))
-
-
-class RegLog(nn.Module):
-    """Creates logistic regression on top of frozen features"""
-    def __init__(self, conv, num_labels):
-        super(RegLog, self).__init__()
-        self.conv = conv
-        if conv==1:
-            self.av_pool = nn.AvgPool2d(6, stride=6, padding=3)
-            s = 9600
-        elif conv==2:
-            self.av_pool = nn.AvgPool2d(4, stride=4, padding=0)
-            s = 9216
-        elif conv==3:
-            self.av_pool = nn.AvgPool2d(3, stride=3, padding=1)
-            s = 9600
-        elif conv==4:
-            self.av_pool = nn.AvgPool2d(3, stride=3, padding=1)
-            s = 9600
-        elif conv==5:
-            self.av_pool = nn.AvgPool2d(2, stride=2, padding=0)
-            s = 9216
-        self.linear = nn.Linear(s, num_labels)
-
-    def forward(self, x):
-        x = self.av_pool(x)
-        x = x.view(x.size(0), x.size(1) * x.size(2) * x.size(3))
-        return self.linear(x)
-
 
 def forward(x, model):
     if hasattr(model, 'sobel') and model.sobel is not None:
