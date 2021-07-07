@@ -239,7 +239,7 @@ def validate(val_loader, model, criterion):
         if args.tencrops:
             bs, ncrops, c, h, w = input_tensor.size()
             input_tensor = input_tensor.view(-1, c, h, w)
-        target = target.cuda(async=True)
+        target = target.cuda()
         with torch.no_grad():
             input_var =input_tensor.cuda()
             target_var = target
