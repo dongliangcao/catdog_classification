@@ -8,7 +8,10 @@ from torchvision.datasets import ImageFolder
 from torchvision import transforms
 from models.vgg import VGG16
 
-from sklearn.metrics import accuracy_score, confusion_matrix, roc_auc_score
+import numpy as np
+from sklearn.metrics.cluster import normalized_mutual_info_score
+from sklearn.cluster import KMeans
+from sklearn.decomposition import PCA
 
 def test(args):
     # reproducibility
@@ -35,45 +38,41 @@ def test(args):
 
     # prepare model
     print('##### Prepare Model #####')
-    model = VGG16(num_classes=len(test_dataset.classes)).cuda()
-    # load checkpoint
-    model.load_state_dict(torch.load(args.model_path)['state_dict'])
+    model = VGG16(num_classes=len(test_dataset.classes), pretrained_path=args.model_path).cuda()
 
-    # compute accuracy
+    # get features for each images
     print('##### Compute Metrics on Test Data #####')
-    test_acc = 0.0
-    test_auc = 0.0
-    test_confusion_mat = 0.0
+    feats = []
+    targets = []
     model.eval()
     for (imgs, target) in tqdm(test_loader):
         imgs, target = imgs.cuda(), target.cuda()
         with torch.no_grad():
-            pred = model(imgs)
-            prob = F.softmax(pred, dim=1)
-            pred = torch.argmax(pred, dim=1)
-
-            target, prob, pred = target.data.cpu().numpy(), prob.data.cpu().numpy(), pred.data.cpu().numpy()
-            auc = roc_auc_score(target, prob, multi_class='ovr')
-            acc = accuracy_score(target, pred)
-            confusion_mat = confusion_matrix(target, pred)
-        test_acc += acc
-        test_auc += auc
-        test_confusion_mat += confusion_mat
+            feat = model(imgs)
+        feats.append(feat.data.cpu().numpy())
+        targets.append(target.data.cpu().numpy())
     
-    test_acc /= len(test_loader)
-    test_auc /= len(test_loader)
+    # concatenate all features and targets
+    feats = np.concatenate(feats, axis=0)
+    targets = np.concatenate(targets, axis=0)
 
-    print(f'Accuracy on test data: {test_acc:.4f}')
-    print(f'ROC AUC score on test data: {test_auc:.4f}')
-    print('Confusion matrix on test data')
-    print(f'{test_dataset.classes}')
-    print(test_confusion_mat)
+    # perform PCA to reduce dimension
+    pca = PCA(n_components=args.pca)
+    feats = pca.fit_transform(feats)
+
+    # perform KMeans to cluster features
+    kmean = KMeans(n_clusters=len(test_dataset.classes))
+    preds = kmean.fit_predict(feats)
+
+    # calculate accuracy and confusion matrix
+    nmi = normalized_mutual_info_score(targets, preds)
+    print(f'Normalized mutual information score: {nmi:.4f}')
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser('Test the trained model on test data')
-    parser.add_argument('--model_path', help='the saved checkpoint for trained model')
+    parser = argparse.ArgumentParser('Test the pretrained model on test data')
     parser.add_argument('--data_dir', help='folder stores the data', default='../../nature_imgs/')
+    parser.add_argument('--model_path', help='file stores pretrained model', default='../pretrained_model/vgg16-397923af.pth')
     parser.add_argument('--batch_size', help='batch size (default: 32)', type=int, default=32)
-
+    parser.add_argument('--pca', type=int, default=32, help='the number of reduced dimensions')
     args = parser.parse_args()
     test(args)
