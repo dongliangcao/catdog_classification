@@ -108,10 +108,12 @@ def main():
                                                batch_size=args.batch_size,
                                                shuffle=True,
                                                num_workers=args.workers,
+                                               drop_last=True,
                                                pin_memory=True)
     val_loader = torch.utils.data.DataLoader(val_dataset,
                                              batch_size=int(args.batch_size/2),
                                              shuffle=True,
+                                             drop_last=True,
                                              num_workers=args.workers)
 
     # logistic regression

@@ -31,7 +31,7 @@ def test(args):
     # prepare test dataset
     test_dataset = ImageFolder(os.path.join(args.data_dir, 'test'), transform=transform)
     print(f'Num of test data: {len(test_dataset)}')
-    test_loader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=True, pin_memory=True, num_workers=2)
+    test_loader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=True, pin_memory=True, num_workers=2, drop_last=True)
 
     # prepare model
     print('##### Prepare Model #####')
