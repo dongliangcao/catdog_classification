@@ -22,12 +22,12 @@ mkl.get_max_threads()
 def parse_args():
     parser = argparse.ArgumentParser(description='PyTorch Implementation of DeepCluster')
 
-    parser.add_argument('--data', help='path to dataset', default='../../catdog/train')
+    parser.add_argument('--data', help='path to dataset', default='../../nature_imgs/train')
     parser.add_argument('--sobel', action='store_true', help='Sobel filtering')
     parser.add_argument('--clustering', type=str, choices=['Kmeans', 'PIC'],
                         default='Kmeans', help='clustering algorithm (default: Kmeans)')
-    parser.add_argument('--nmb_cluster', '--k', type=int, default=2,
-                        help='number of cluster for k-means (default: 2)')
+    parser.add_argument('--nmb_cluster', '--k', type=int, default=4,
+                        help='number of cluster for k-means (default: 4)')
     parser.add_argument('--lr', default=0.0001, type=float,
                         help='learning rate (default: 0.0001)')
     parser.add_argument('--wd', default=-5, type=float,
@@ -119,6 +119,8 @@ def main(args):
     dataset = datasets.ImageFolder(args.data, transform=transforms.Compose(tra))
     if args.verbose:
         print('Load dataset: {0:.2f} s'.format(time.time() - end))
+        print(f'# of data: {len(dataset)}')
+        print(f'# of classes: {dataset.classes}')
 
     dataloader = torch.utils.data.DataLoader(dataset,
                                              batch_size=args.batch,
