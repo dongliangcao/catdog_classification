@@ -1,10 +1,12 @@
 import argparse
 import os
+from pickle import TRUE
 import time
 
 import numpy as np
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.backends.cudnn as cudnn
 import torch.optim
 import torch.utils.data
@@ -12,11 +14,12 @@ import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 
 from util import AverageMeter, learning_rate_decay, load_model, Logger
+from sklearn.metrics import roc_auc_score
 
 parser = argparse.ArgumentParser(description="""Train linear classifier on top
                                  of frozen convolutional layers of an AlexNet.""")
 
-parser.add_argument('--data', type=str, help='path to dataset', default='../../catdog')
+parser.add_argument('--data', type=str, help='path to dataset', default='../../nature_imgs')
 parser.add_argument('--model_path', type=str, help='path to model', default='runs/checkpoint.pth.tar')
 parser.add_argument('--conv', type=int, choices=[1, 2, 3, 4, 5], default=1,
                     help='on top of which convolutional layer train logistic regression')
@@ -26,8 +29,8 @@ parser.add_argument('--exp', type=str, default='runs/eval', help='exp folder')
 parser.add_argument('--workers', default=2, type=int,
                     help='number of data loading workers (default: 2)')
 parser.add_argument('--epochs', type=int, default=10, help='number of total epochs to run (default: 10)')
-parser.add_argument('--batch_size', default=32, type=int,
-                    help='mini-batch size (default: 32)')
+parser.add_argument('--batch_size', default=64, type=int,
+                    help='mini-batch size (default: 64)')
 parser.add_argument('--lr', default=0.0005, type=float, help='learning rate (default: 0.0005)')
 parser.add_argument('--momentum', default=0.9, type=float, help='momentum (default: 0.9)')
 parser.add_argument('--weight_decay', '--wd', default=-4, type=float,
@@ -97,6 +100,10 @@ def main():
         valdir,
         transform=transforms.Compose(transformations_val)
     )
+    print('### Prepare data ###')
+    print(f'# of training data: {len(train_dataset)}')
+    print(f'# of validation data: {len(val_dataset)}')
+    print(f'# of classes: {train_dataset.classes}')
     train_loader = torch.utils.data.DataLoader(train_dataset,
                                                batch_size=args.batch_size,
                                                shuffle=True,
@@ -104,7 +111,7 @@ def main():
                                                pin_memory=True)
     val_loader = torch.utils.data.DataLoader(val_dataset,
                                              batch_size=int(args.batch_size/2),
-                                             shuffle=False,
+                                             shuffle=True,
                                              num_workers=args.workers)
 
     # logistic regression
@@ -181,6 +188,7 @@ def train(train_loader, model, criterion, optimizer, epoch):
     data_time = AverageMeter()
     losses = AverageMeter()
     top1 = AverageMeter()
+    roc_auc = AverageMeter()
     # top5 = AverageMeter()
 
     # freeze also batch norm layers
@@ -201,11 +209,14 @@ def train(train_loader, model, criterion, optimizer, epoch):
         # compute output
 
         output = forward(input_var, model)
+        prob = F.softmax(output, dim=1)
         loss = criterion(output, target_var)
         # measure accuracy and record loss
         prec1 = accuracy(output.data, target, topk=(1,))
         losses.update(loss.item(), input.size(0))
         top1.update(prec1[0].item(), input.size(0))
+        roc = roc_auc_score(target.data.cpu().numpy(), prob.data.cpu().numpy(), multi_class='ovr', labels=np.arange(len(train_loader.dataset.classes)))
+        roc_auc.update(roc)
         # top5.update(prec5[0], input.size(0))
 
         # compute gradient and do SGD step
@@ -222,13 +233,15 @@ def train(train_loader, model, criterion, optimizer, epoch):
                   'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
                   'Loss {loss.val:.4f} ({loss.avg:.4f})\t'
                   'Prec@1 {top1.val:.3f} ({top1.avg:.3f})\t'
-                  .format(epoch, i, len(train_loader), batch_time=batch_time, loss=losses, top1=top1))
+                  'ROC {roc_auc.val:.3f} ({roc_auc.avg:.3f})'
+                  .format(epoch, i, len(train_loader), batch_time=batch_time, loss=losses, top1=top1, roc_auc=roc_auc))
 
 
 def validate(val_loader, model, criterion):
     batch_time = AverageMeter()
     losses = AverageMeter()
     top1 = AverageMeter()
+    roc_auc = AverageMeter()
     # top5 = AverageMeter()
 
     # switch to evaluate mode
@@ -245,7 +258,7 @@ def validate(val_loader, model, criterion):
             target_var = target
 
             output = forward(input_var, model)
-
+            prob = F.softmax(output, dim=1)
             if args.tencrops:
                 output_central = output.view(bs, ncrops, -1)[: , ncrops / 2 - 1, :]
                 output = softmax(output)
@@ -256,6 +269,8 @@ def validate(val_loader, model, criterion):
             prec1 = accuracy(output.data, target, topk=(1,))
             top1.update(prec1[0].item(), input_tensor.size(0))
             # top5.update(prec5[0], input_tensor.size(0))
+            roc = roc_auc_score(target.data.cpu().numpy(), prob.data.cpu().numpy(), multi_class='ovr', labels=np.arange(len(val_loader.dataset.classes)))
+            roc_auc.update(roc)
             loss = criterion(output_central, target_var)
         losses.update(loss.item(), input_tensor.size(0))
 
@@ -268,8 +283,9 @@ def validate(val_loader, model, criterion):
                   'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
                   'Loss {loss.val:.4f} ({loss.avg:.4f})\t'
                   'Prec@1 {top1.val:.3f} ({top1.avg:.3f})\t'
+                  'ROC {roc_auc.val:.3f} ({roc_auc.avg:.3f})'
                   .format(i, len(val_loader), batch_time=batch_time,
-                   loss=losses, top1=top1))
+                   loss=losses, top1=top1, roc_auc=roc_auc))
 
     return top1.avg, losses.avg
 
