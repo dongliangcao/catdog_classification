@@ -8,7 +8,7 @@ from torchvision.datasets import ImageFolder
 from torchvision import transforms
 from models.vgg import VGG16
 
-from sklearn.metrics import accuracy_score, confusion_matrix, roc_auc_score
+from sklearn.metrics import accuracy_score, confusion_matrix, roc_auc_score, normalized_mutual_info_score
 
 def test(args):
     # reproducibility
@@ -44,6 +44,7 @@ def test(args):
     test_acc = 0.0
     test_auc = 0.0
     test_confusion_mat = 0.0
+    test_nmi = 0.0
     model.eval()
     for (imgs, target) in tqdm(test_loader):
         imgs, target = imgs.cuda(), target.cuda()
@@ -56,22 +57,26 @@ def test(args):
             auc = roc_auc_score(target, prob, multi_class='ovr')
             acc = accuracy_score(target, pred)
             confusion_mat = confusion_matrix(target, pred)
+            nmi = normalized_mutual_info_score(target, pred)
         test_acc += acc
         test_auc += auc
         test_confusion_mat += confusion_mat
+        test_nmi += nmi
     
     test_acc /= len(test_loader)
     test_auc /= len(test_loader)
+    test_nmi /= len(test_loader)
 
     print(f'Accuracy on test data: {test_acc:.4f}')
     print(f'ROC AUC score on test data: {test_auc:.4f}')
+    print(f'NMI score on test data: {test_nmi:.4f}')
     print('Confusion matrix on test data')
     print(f'{test_dataset.classes}')
     print(test_confusion_mat)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('Test the trained model on test data')
-    parser.add_argument('--model_path', help='the saved checkpoint for trained model')
+    parser.add_argument('--model_path', required=True, help='the saved checkpoint for trained model')
     parser.add_argument('--data_dir', help='folder stores the data', default='../../nature_imgs/')
     parser.add_argument('--batch_size', help='batch size (default: 32)', type=int, default=32)
 

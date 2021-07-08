@@ -14,7 +14,7 @@ import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 
 from util import AverageMeter, learning_rate_decay, load_model, Logger
-from sklearn.metrics import roc_auc_score
+from sklearn.metrics import roc_auc_score, normalized_mutual_info_score
 
 parser = argparse.ArgumentParser(description="""Train linear classifier on top
                                  of frozen convolutional layers of an AlexNet.""")
@@ -191,6 +191,7 @@ def train(train_loader, model, criterion, optimizer, epoch):
     losses = AverageMeter()
     top1 = AverageMeter()
     roc_auc = AverageMeter()
+    nmis = AverageMeter()
     # top5 = AverageMeter()
 
     # freeze also batch norm layers
@@ -212,13 +213,17 @@ def train(train_loader, model, criterion, optimizer, epoch):
 
         output = forward(input_var, model)
         prob = F.softmax(output, dim=1)
+        pred = prob.argmax(dim=1)
         loss = criterion(output, target_var)
         # measure accuracy and record loss
         prec1 = accuracy(output.data, target, topk=(1,))
         losses.update(loss.item(), input.size(0))
         top1.update(prec1[0].item(), input.size(0))
-        roc = roc_auc_score(target.data.cpu().numpy(), prob.data.cpu().numpy(), multi_class='ovr', labels=np.arange(len(train_loader.dataset.classes)))
+        target_np, prob_np, pred_np =  target.data.cpu().numpy(), prob.data.cpu().numpy(), pred.data.cpu().numpy()
+        roc = roc_auc_score(target_np, prob_np, multi_class='ovr', labels=np.arange(len(train_loader.dataset.classes)))
         roc_auc.update(roc)
+        nmi = normalized_mutual_info_score(target_np, pred_np)
+        nmis.update(nmi)
         # top5.update(prec5[0], input.size(0))
 
         # compute gradient and do SGD step
@@ -235,8 +240,9 @@ def train(train_loader, model, criterion, optimizer, epoch):
                   'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
                   'Loss {loss.val:.4f} ({loss.avg:.4f})\t'
                   'Prec@1 {top1.val:.3f} ({top1.avg:.3f})\t'
-                  'ROC {roc_auc.val:.3f} ({roc_auc.avg:.3f})'
-                  .format(epoch, i, len(train_loader), batch_time=batch_time, loss=losses, top1=top1, roc_auc=roc_auc))
+                  'ROC {roc_auc.val:.3f} ({roc_auc.avg:.3f})\t'
+                  'NMI {nmis.val:.3f} ({nmis.avg:.3f})'
+                  .format(epoch, i, len(train_loader), batch_time=batch_time, loss=losses, top1=top1, roc_auc=roc_auc, nmis=nmis))
 
 
 def validate(val_loader, model, criterion):
@@ -244,6 +250,7 @@ def validate(val_loader, model, criterion):
     losses = AverageMeter()
     top1 = AverageMeter()
     roc_auc = AverageMeter()
+    nmis = AverageMeter()
     # top5 = AverageMeter()
 
     # switch to evaluate mode
@@ -261,6 +268,7 @@ def validate(val_loader, model, criterion):
 
             output = forward(input_var, model)
             prob = F.softmax(output, dim=1)
+            pred = prob.argmax(dim=1)
             if args.tencrops:
                 output_central = output.view(bs, ncrops, -1)[: , ncrops / 2 - 1, :]
                 output = softmax(output)
@@ -271,8 +279,11 @@ def validate(val_loader, model, criterion):
             prec1 = accuracy(output.data, target, topk=(1,))
             top1.update(prec1[0].item(), input_tensor.size(0))
             # top5.update(prec5[0], input_tensor.size(0))
-            roc = roc_auc_score(target.data.cpu().numpy(), prob.data.cpu().numpy(), multi_class='ovr', labels=np.arange(len(val_loader.dataset.classes)))
+            target_np, prob_np, pred_np =  target.data.cpu().numpy(), prob.data.cpu().numpy(), pred.data.cpu().numpy()
+            roc = roc_auc_score(target_np, prob_np, multi_class='ovr', labels=np.arange(len(val_loader.dataset.classes)))
             roc_auc.update(roc)
+            nmi = normalized_mutual_info_score(target_np, pred_np)
+            nmis.update(nmi)
             loss = criterion(output_central, target_var)
         losses.update(loss.item(), input_tensor.size(0))
 
@@ -285,9 +296,10 @@ def validate(val_loader, model, criterion):
                   'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
                   'Loss {loss.val:.4f} ({loss.avg:.4f})\t'
                   'Prec@1 {top1.val:.3f} ({top1.avg:.3f})\t'
-                  'ROC {roc_auc.val:.3f} ({roc_auc.avg:.3f})'
+                  'ROC {roc_auc.val:.3f} ({roc_auc.avg:.3f})\t'
+                  'NMI {nmis.val:.3f} ({nmis.avg:.3f})'
                   .format(i, len(val_loader), batch_time=batch_time,
-                   loss=losses, top1=top1, roc_auc=roc_auc))
+                   loss=losses, top1=top1, roc_auc=roc_auc, nmis=nmis))
 
     return top1.avg, losses.avg
 
