@@ -79,6 +79,8 @@ def train(args):
 
     # start training
     print('##### Start Training #####')
+    best_acc = 0.0
+    best_state_dict = None
     for epoch in range(args.start_epoch, args.epochs):
         # start training
         model.train()
@@ -130,14 +132,19 @@ def train(args):
         logger.add_scalars('losses', {'val_loss': val_loss}, global_step=epoch)
         logger.add_scalar('val', val_acc, global_step=epoch)
 
-        if (epoch - 1) % args.print_every_epoch == 0:
+        if best_acc < val_acc:
+            best_acc = val_acc
+            best_state_dict = model.state_dict()
+
+        if (epoch + 1) % args.print_every_epoch == 0:
             with open(logfile, 'a+') as f:
                 print(f'Epoch {epoch}/{args.epochs}, Train loss {train_loss:.4f}, Val loss {val_loss:.4f}, Val acc {val_acc:.4f}', file=f)
-        if (epoch - 1) % args.save_every_epoch == 0:
+        if (epoch + 1) % args.save_every_epoch == 0:
             torch.save({'epoch': epoch + 1,
                     'state_dict': model.state_dict(),
                     'optimizer' : optimizer.state_dict()}, os.path.join(savedir, f'epoch{epoch}.pth'))
-
+    
+    model.load_state_dict(best_state_dict)
     # save model
     print('##### save model #####')
     torch.save({'epoch': epoch + 1,
@@ -149,10 +156,10 @@ if __name__ == '__main__':
     parser.add_argument('--data_dir', help='folder stores the data', default='../../nature_imgs/')
     parser.add_argument('--model_path', help='file stores pretrained model', default='../pretrained_model/vgg16-397923af.pth')
     parser.add_argument('--pretrained', help='use pre-trained VGG from ImageNet', action='store_true')
-    parser.add_argument('--epochs', help='number of total epochs to run (default: 10)', type=int, default=10)
+    parser.add_argument('--epochs', help='number of total epochs to run (default: 15)', type=int, default=15)
     parser.add_argument('--start_epoch', help='number of epoch to start (default: 0)', type=int, default=0)
     parser.add_argument('--batch_size', help='batch size (default: 16)', type=int, default=16)
-    parser.add_argument('--lr', help='learning rate (default: 0.0001)', type=float, default=0.0001)
+    parser.add_argument('--lr', help='learning rate (default: 0.00001)', type=float, default=0.00001)
     parser.add_argument('--log_dir', help='folder stores the training logs (default: runs/)', default='runs/')
     parser.add_argument('--resume', help='resume from a given checkpoint', default=None)
     parser.add_argument('--print_every_epoch', help='the frequency of print log (default: 1)', type=int, default=1)
