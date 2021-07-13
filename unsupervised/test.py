@@ -9,9 +9,11 @@ from torchvision import transforms
 from models.vgg import VGG16
 
 import numpy as np
-from sklearn.metrics.cluster import normalized_mutual_info_score
+import pandas as pd
+from sklearn.metrics.cluster import normalized_mutual_info_score, adjusted_rand_score
 from sklearn.cluster import KMeans
 from sklearn.decomposition import PCA
+from sklearn.manifold import TSNE
 
 def test(args):
     # reproducibility
@@ -38,8 +40,10 @@ def test(args):
 
     # prepare model
     print('##### Prepare Model #####')
-    model = VGG16(num_classes=len(test_dataset.classes), pretrained_path=args.model_path).cuda()
-
+    if args.pretrained:
+        model = VGG16(num_classes=len(test_dataset.classes), pretrained_path=args.model_path).cuda()
+    else:
+        model = VGG16(num_classes=len(test_dataset.classes), pretrained_path=None).cuda()
     # get features for each images
     print('##### Compute Metrics on Test Data #####')
     feats = []
@@ -57,8 +61,11 @@ def test(args):
     targets = np.concatenate(targets, axis=0)
 
     # perform PCA to reduce dimension
-    pca = PCA(n_components=args.pca)
-    feats = pca.fit_transform(feats)
+    if args.dim >= 4:
+        tsne = TSNE(n_components=args.dim, init='pca', method='exact')
+    else:
+        tsne = TSNE(n_components=args.dim, init='pca')
+    feats = tsne.fit_transform(feats)
 
     # perform KMeans to cluster features
     kmean = KMeans(n_clusters=len(test_dataset.classes))
@@ -66,13 +73,33 @@ def test(args):
 
     # calculate accuracy and confusion matrix
     nmi = normalized_mutual_info_score(targets, preds)
+    ari = adjusted_rand_score(targets, preds)
     print(f'Normalized mutual information score: {nmi:.4f}')
+    print(f'Adjusted random score: {ari:.4f}')
+
+    # write csv
+    df = pd.read_csv('../result.csv', header=0, names=['method', 'nmi', 'ari'], dtype={'method': str, 'nmi': float, 'ari': float})
+    if args.pretrained:
+        df = df.append(pd.DataFrame({
+            'method': ['unsupervised_pretrain'],
+            'nmi': [nmi],
+            'ari': [ari]
+        }, index=[len(df.index)]))
+    else:
+        df = df.append(pd.DataFrame({
+            'method': ['unsupervised'],
+            'nmi': [nmi],
+            'ari': [ari]
+        }, index=[len(df.index)]))
+    print(df)
+    df.to_csv('../result.csv')
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('Test the pretrained model on test data')
     parser.add_argument('--data_dir', help='folder stores the data', default='../../nature_imgs/')
     parser.add_argument('--model_path', help='file stores pretrained model', default='../pretrained_model/vgg16-397923af.pth')
     parser.add_argument('--batch_size', help='batch size (default: 32)', type=int, default=32)
-    parser.add_argument('--pca', type=int, default=32, help='the number of reduced dimensions')
+    parser.add_argument('--dim', type=int, default=2, help='the number of reduced dimensions (default: 2)')
+    parser.add_argument('--pretrained', action='store_true', help='Use pre-trained VGG network in ImageNet')
     args = parser.parse_args()
     test(args)

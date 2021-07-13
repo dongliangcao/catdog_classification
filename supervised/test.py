@@ -1,6 +1,8 @@
 import argparse, os
 from tqdm import tqdm
 
+import pandas as pd
+
 import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
@@ -8,7 +10,7 @@ from torchvision.datasets import ImageFolder
 from torchvision import transforms
 from models.vgg import VGG16
 
-from sklearn.metrics import accuracy_score, confusion_matrix, roc_auc_score, normalized_mutual_info_score
+from sklearn.metrics import accuracy_score, confusion_matrix, roc_auc_score, normalized_mutual_info_score, adjusted_rand_score
 
 def test(args):
     # reproducibility
@@ -39,12 +41,17 @@ def test(args):
     # load checkpoint
     model.load_state_dict(torch.load(args.model_path)['state_dict'])
 
+    # logfile
+    logfile = os.path.join(os.path.dirname(args.model_path), '../log.txt')
+    assert os.path.isfile(logfile)
+
     # compute accuracy
     print('##### Compute Metrics on Test Data #####')
     test_acc = 0.0
     test_auc = 0.0
     test_confusion_mat = 0.0
     test_nmi = 0.0
+    test_ari = 0.0
     model.eval()
     for (imgs, target) in tqdm(test_loader):
         imgs, target = imgs.cuda(), target.cuda()
@@ -58,21 +65,37 @@ def test(args):
             acc = accuracy_score(target, pred)
             confusion_mat = confusion_matrix(target, pred)
             nmi = normalized_mutual_info_score(target, pred)
+            ari = adjusted_rand_score(target, pred)
         test_acc += acc
         test_auc += auc
         test_confusion_mat += confusion_mat
         test_nmi += nmi
+        test_ari += ari
     
     test_acc /= len(test_loader)
     test_auc /= len(test_loader)
     test_nmi /= len(test_loader)
+    test_ari /= len(test_loader)
 
-    print(f'Accuracy on test data: {test_acc:.4f}')
-    print(f'ROC AUC score on test data: {test_auc:.4f}')
-    print(f'NMI score on test data: {test_nmi:.4f}')
-    print('Confusion matrix on test data')
-    print(f'{test_dataset.classes}')
-    print(test_confusion_mat)
+    with open(logfile, 'a') as f:
+        print(f'Accuracy on test data: {test_acc:.4f}', file=f)
+        print(f'ROC AUC score on test data: {test_auc:.4f}', file=f)
+        print(f'NMI score on test data: {test_nmi:.4f}', file=f)
+        print(f'ARI score on test data: {test_ari:.4f}', file=f)
+        print('Confusion matrix on test data', file=f)
+        print(f'{test_dataset.classes}', file=f)
+        print(test_confusion_mat, file=f)
+
+    # write csv
+    assert os.path.isfile('../result.csv')
+    df = pd.read_csv('../result.csv', header=0, names=['method', 'nmi', 'ari'], dtype={'method': str, 'nmi': float, 'ari': float})
+    df = df.append(pd.DataFrame({
+        'method': ['supervised'],
+        'nmi': [test_nmi],
+        'ari': [test_ari]
+    }, index=[len(df.index)]))
+    print(df)
+    df.to_csv('../result.csv')
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('Test the trained model on test data')

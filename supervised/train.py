@@ -45,12 +45,16 @@ def train(args):
 
     # prepare model
     print('##### Prepare Model #####')
-    model = VGG16(num_classes=len(train_dataset.dataset.classes), pretrained_path=args.model_path).cuda()
-    # freeze the features layers
-    for param in model.features.parameters():
-        param.requires_grad = False
+    if args.pretrained:
+        model = VGG16(num_classes=len(train_dataset.dataset.classes), pretrained_path=args.model_path).cuda()
+        # freeze the features layers
+        for param in model.features.parameters():
+            param.requires_grad = False
+    else:
+        model = VGG16(num_classes=len(train_dataset.dataset.classes), pretrained_path=None).cuda()
+    
     # prepare loss and optimizer
-    optimizer = optim.SGD(filter(lambda x: x.requires_grad, model.parameters()), lr=args.lr, weight_decay=1e-5)
+    optimizer = optim.Adam(filter(lambda x: x.requires_grad, model.parameters()), lr=args.lr, weight_decay=1e-5)
     criterion = nn.CrossEntropyLoss().cuda()
 
     # optionally resume from a checkpoint
@@ -71,6 +75,7 @@ def train(args):
     logger = SummaryWriter(log_dir=logdir)
     savedir = os.path.join(logdir, 'checkpoints')
     os.makedirs(savedir, exist_ok=True)
+    logfile = os.path.join(logdir, 'log.txt')
 
     # start training
     print('##### Start Training #####')
@@ -126,7 +131,8 @@ def train(args):
         logger.add_scalar('val', val_acc, global_step=epoch)
 
         if (epoch - 1) % args.print_every_epoch == 0:
-            print(f'Epoch {epoch}/{args.epochs}, Train loss {train_loss:.4f}, Val loss {val_loss:.4f}, Val acc {val_acc:.4f}')
+            with open(logfile, 'a+') as f:
+                print(f'Epoch {epoch}/{args.epochs}, Train loss {train_loss:.4f}, Val loss {val_loss:.4f}, Val acc {val_acc:.4f}', file=f)
         if (epoch - 1) % args.save_every_epoch == 0:
             torch.save({'epoch': epoch + 1,
                     'state_dict': model.state_dict(),
@@ -142,10 +148,11 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser('Supervised training of VGG16 for cat dog classification')
     parser.add_argument('--data_dir', help='folder stores the data', default='../../nature_imgs/')
     parser.add_argument('--model_path', help='file stores pretrained model', default='../pretrained_model/vgg16-397923af.pth')
+    parser.add_argument('--pretrained', help='use pre-trained VGG from ImageNet', action='store_true')
     parser.add_argument('--epochs', help='number of total epochs to run (default: 10)', type=int, default=10)
     parser.add_argument('--start_epoch', help='number of epoch to start (default: 0)', type=int, default=0)
-    parser.add_argument('--batch_size', help='batch size (default: 32)', type=int, default=32)
-    parser.add_argument('--lr', help='learning rate (default: 0.0005)', type=float, default=0.0005)
+    parser.add_argument('--batch_size', help='batch size (default: 16)', type=int, default=16)
+    parser.add_argument('--lr', help='learning rate (default: 0.0001)', type=float, default=0.0001)
     parser.add_argument('--log_dir', help='folder stores the training logs (default: runs/)', default='runs/')
     parser.add_argument('--resume', help='resume from a given checkpoint', default=None)
     parser.add_argument('--print_every_epoch', help='the frequency of print log (default: 1)', type=int, default=1)
