@@ -1,8 +1,11 @@
 import argparse, os, time
+from datetime import datetime
 
 import faiss
 import numpy as np
+import matplotlib.pyplot as plt
 from sklearn.metrics.cluster import normalized_mutual_info_score
+from sklearn.manifold import TSNE
 import torch
 import torch.nn as nn
 import torch.nn.parallel
@@ -11,6 +14,7 @@ import torch.optim
 import torch.utils.data
 import torchvision.transforms as transforms
 import torchvision.datasets as datasets
+from tensorboardX import SummaryWriter
 
 import clustering
 from models.vgg import vgg16
@@ -103,6 +107,10 @@ def main(args):
     if not os.path.isdir(exp_check):
         os.makedirs(exp_check)
 
+    # logger
+    logdir = os.path.join(args.log_dir, datetime.now().strftime('%Y-%m-%d_%H-%M-%S'))
+    logger = SummaryWriter(logdir)
+
     # creating cluster assignments log
     cluster_log = Logger(os.path.join(args.exp, 'clusters'))
 
@@ -145,8 +153,7 @@ def main(args):
         if args.verbose:
             print('Cluster the features')
         clustering_loss = deepcluster.cluster(features, verbose=args.verbose)
-        # release memory
-        del features
+        
         # assign pseudo-labels
         if args.verbose:
             print('Assign pseudo labels')
@@ -156,6 +163,9 @@ def main(args):
         # uniformly sample per target
         sampler = UnifLabelSampler(int(args.reassign * len(train_dataset)),
                                    deepcluster.images_lists)
+
+        # log clustering result
+        log_clustering(logger, features, deepcluster.images_lists, epoch)
 
         train_dataloader = torch.utils.data.DataLoader(
             train_dataset,
@@ -176,7 +186,7 @@ def main(args):
 
         # train network with clusters as pseudo-labels
         end = time.time()
-        loss = train(train_dataloader, model, criterion, optimizer, epoch)
+        loss = train(train_dataloader, model, criterion, optimizer, epoch, logger)
 
         # print log
         if args.verbose:
@@ -204,7 +214,7 @@ def main(args):
         cluster_log.log(deepcluster.images_lists)
 
 
-def train(loader, model, crit, opt, epoch):
+def train(loader, model, crit, opt, epoch, logger):
     """Training of the CNN.
         Args:
             loader (torch.utils.data.DataLoader): Data loader
@@ -257,6 +267,7 @@ def train(loader, model, crit, opt, epoch):
 
         # record loss
         losses.update(loss.data.item(), input_tensor.size(0))
+        logger.add_scalar('train_loss', loss.item(), global_step=n)
 
         # compute gradient and do SGD step
         opt.zero_grad()
@@ -311,6 +322,32 @@ def compute_features(dataloader, model, N):
                   .format(i, len(dataloader), batch_time=batch_time))
     return features
 
+def log_clustering(logger, features, images_lists, global_step):
+    """
+    Log clustering result
+    Args:
+        logger: Summary Writer
+        features: feature for each image, np.ndarray [N, C]
+        images_lists (list of list): for each cluster, the list of image indexes
+                                    belonging to this cluster
+    """
+    # dimension reduction for visulization
+    features = TSNE(2).fit_transform(features)
+
+    # reorder features according to images_lists
+    pseudolabels = []
+    for cluster, images in enumerate(images_lists):
+        if cluster == 0:
+            reorder_features = features[images, :]
+        else:
+            reorder_features = np.concatenate((reorder_features, features[images, :]), axis=0)
+        pseudolabels.extend([cluster] * len(images))
+
+    # plot
+    plt.scatter(reorder_features[:, 0], reorder_features[:, 1], c=pseudolabels)
+
+    # record
+    logger.add_figure('clustering', plt.gcf(), global_step=global_step)
 
 if __name__ == '__main__':
     args = parse_args()

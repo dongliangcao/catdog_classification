@@ -72,7 +72,7 @@ def train(args):
 
     # logger
     logdir = os.path.join(args.log_dir, datetime.now().strftime('%Y-%m-%d_%H-%M-%S'))
-    logger = SummaryWriter(log_dir=logdir)
+    logger = SummaryWriter(logdir)
     savedir = os.path.join(logdir, 'checkpoints')
     os.makedirs(savedir, exist_ok=True)
     logfile = os.path.join(logdir, 'log.txt')
