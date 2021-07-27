@@ -14,6 +14,7 @@ import torch.optim
 import torch.utils.data
 import torchvision.transforms as transforms
 import torchvision.datasets as datasets
+from torchvision.utils import make_grid
 from tensorboardX import SummaryWriter
 
 import clustering
@@ -55,6 +56,7 @@ def parse_args():
     parser.add_argument('--seed', type=int, default=31, help='random seed (default: 31)')
     parser.add_argument('--exp', type=str, default='runs/', help='path to exp folder')
     parser.add_argument('--verbose', action='store_true', help='chatty')
+    parser.add_argument('--log_dir', help='log directory', default='runs/')
     return parser.parse_args()
 
 def main(args):
@@ -165,14 +167,17 @@ def main(args):
                                    deepcluster.images_lists)
 
         # log clustering result
-        log_clustering(logger, features, deepcluster.images_lists, epoch)
+        log_clustering(logger, dataloader, features, deepcluster.images_lists, epoch)
+
+        # release memory
+        del features
 
         train_dataloader = torch.utils.data.DataLoader(
             train_dataset,
             batch_size=args.batch,
             num_workers=args.workers,
             sampler=sampler,
-            pin_memory=True,
+            pin_memory=False,
         )
 
         # set last fully connected layer
@@ -200,6 +205,7 @@ def main(args):
                     clustering.arrange_clustering(deepcluster.images_lists),
                     clustering.arrange_clustering(cluster_log.data[-1])
                 )
+                logger.add_scalar('nmi', nmi, global_step=epoch)
                 print('NMI against previous assignment: {0:.3f}'.format(nmi))
             except IndexError:
                 pass
@@ -322,11 +328,12 @@ def compute_features(dataloader, model, N):
                   .format(i, len(dataloader), batch_time=batch_time))
     return features
 
-def log_clustering(logger, features, images_lists, global_step):
+def log_clustering(logger, dataloader, features, images_lists, global_step):
     """
     Log clustering result
     Args:
         logger: Summary Writer
+        dataloader: DataLoader
         features: feature for each image, np.ndarray [N, C]
         images_lists (list of list): for each cluster, the list of image indexes
                                     belonging to this cluster
@@ -336,6 +343,7 @@ def log_clustering(logger, features, images_lists, global_step):
 
     # reorder features according to images_lists
     pseudolabels = []
+
     for cluster, images in enumerate(images_lists):
         if cluster == 0:
             reorder_features = features[images, :]
@@ -344,10 +352,28 @@ def log_clustering(logger, features, images_lists, global_step):
         pseudolabels.extend([cluster] * len(images))
 
     # plot
+    fig = plt.figure(global_step)      
     plt.scatter(reorder_features[:, 0], reorder_features[:, 1], c=pseudolabels)
 
     # record
-    logger.add_figure('clustering', plt.gcf(), global_step=global_step)
+    logger.add_figure('clustering', fig, global_step=global_step)
+
+    # plot image grid for each clustering
+    for i in range(len(images_lists)):
+        # random select 25 samples for each cluster
+        inds = np.random.choice(images_lists[i], min(25, len(images_lists[i])), replace=False)
+        imgs = []
+        for ind in inds:
+            img = dataloader.dataset[ind][0]
+            # rescale image from mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
+            std = torch.tensor([0.229, 0.224, 0.225], dtype=img.dtype, device=img.device)[:, None, None]
+            mean = torch.tensor([0.485, 0.456, 0.406], dtype=img.dtype, device=img.device)[:, None, None]  
+            img = torch.clamp(img * std + mean, 0, 1)
+            imgs.append(img)
+
+        imgs = torch.stack(imgs, dim=0) # [25, 3, H, W]
+        img_grid = make_grid(imgs, nrow=5)
+        logger.add_image(str(i), img_grid, global_step=global_step, dataformats='CHW')
 
 if __name__ == '__main__':
     args = parse_args()
