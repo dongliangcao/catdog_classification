@@ -133,3 +133,6 @@ runs/
 
 # pretrained model
 pretrained_model/
+
+# pickle file
+*.pkl

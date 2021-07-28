@@ -1,6 +1,6 @@
 import argparse
 import os
-from pickle import TRUE
+import pickle
 import time
 from tqdm import tqdm
 
@@ -23,20 +23,11 @@ parser = argparse.ArgumentParser(description="""Train linear classifier on top
 
 parser.add_argument('--data', type=str, help='path to dataset', default='../../nature_imgs')
 parser.add_argument('--model_path', type=str, help='path to model', default='runs/checkpoint.pth.tar')
-parser.add_argument('--conv', type=int, choices=[1, 2, 3, 4, 5], default=1,
-                    help='on top of which convolutional layer train logistic regression')
-parser.add_argument('--tencrops', action='store_true',
-                    help='validation accuracy averaged over 10 crops')
 parser.add_argument('--exp', type=str, default='runs/eval', help='exp folder')
 parser.add_argument('--workers', default=2, type=int,
                     help='number of data loading workers (default: 2)')
-parser.add_argument('--epochs', type=int, default=10, help='number of total epochs to run (default: 10)')
 parser.add_argument('--batch_size', default=64, type=int,
                     help='mini-batch size (default: 64)')
-parser.add_argument('--lr', default=0.0005, type=float, help='learning rate (default: 0.0005)')
-parser.add_argument('--momentum', default=0.9, type=float, help='momentum (default: 0.9)')
-parser.add_argument('--weight_decay', '--wd', default=-4, type=float,
-                    help='weight decay pow (default: -4)')
 parser.add_argument('--seed', type=int, default=31, help='random seed')
 parser.add_argument('--verbose', action='store_true', help='chatty')
 
@@ -73,6 +64,20 @@ def main():
         valdir,
         transform=transforms.Compose(transformations_val)
     )
+
+    # initialize test dict
+    test_dict = dict()
+    for i in range(len(val_dataset.classes)):
+        test_dict[i] = dict()
+        for cls in val_dataset.classes:
+            test_dict[i][cls] = 0
+    
+    # initialize map
+    class_map = dict()
+    for i, cls in enumerate(val_dataset.classes):
+        class_map[i] = cls
+
+    # prepare data
     print('### Prepare data ###')
     print(f'# of validation data: {len(val_dataset)}')
     val_loader = torch.utils.data.DataLoader(val_dataset,
@@ -87,7 +92,12 @@ def main():
         os.makedirs(exp_log)
 
     # evaluate on validation set
-    nmi, ari = validate(val_loader, model)
+    nmi, ari = validate(val_loader, model, test_dict, class_map)
+
+    # display and save dict
+    print(test_dict)
+    with open('test_dict.pkl', 'wb+') as f:
+        pickle.dump(test_dict, f)
 
     # write csv
     assert os.path.isfile('../result.csv')
@@ -109,7 +119,7 @@ def forward(x, model):
     x = model.top_layer(x)
     return x
 
-def validate(val_loader, model):
+def validate(val_loader, model, test_dict, class_map):
     batch_time = AverageMeter()
     nmis = AverageMeter()
     aris = AverageMeter()
@@ -127,6 +137,13 @@ def validate(val_loader, model):
             pred = prob.argmax(dim=1)
 
             target_np, pred_np =  target.data.cpu().numpy(), pred.data.cpu().numpy()
+
+            # update test_dict
+            for i in range(target_np.shape[0]):
+                cls = class_map[target_np[i]]
+                test_dict[pred_np[i]][cls] += 1
+
+            # update metrics
             nmi = normalized_mutual_info_score(target_np, pred_np)
             nmis.update(nmi)
             ari = adjusted_rand_score(target_np, pred_np)

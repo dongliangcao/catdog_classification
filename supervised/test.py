@@ -1,4 +1,4 @@
-import argparse, os
+import argparse, os, pickle
 from tqdm import tqdm
 
 import pandas as pd
@@ -35,6 +35,18 @@ def test(args):
     print(f'Num of test data: {len(test_dataset)}')
     test_loader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=True, pin_memory=True, num_workers=2, drop_last=True)
 
+    # initialize test dict
+    test_dict = dict()
+    for i in range(len(test_dataset.classes)):
+        test_dict[i] = dict()
+        for cls in test_dataset.classes:
+            test_dict[i][cls] = 0
+    
+    # initialize map
+    class_map = dict()
+    for i, cls in enumerate(test_dataset.classes):
+        class_map[i] = cls
+
     # prepare model
     print('##### Prepare Model #####')
     model = VGG16(num_classes=len(test_dataset.classes)).cuda()
@@ -60,12 +72,19 @@ def test(args):
             prob = F.softmax(pred, dim=1)
             pred = torch.argmax(pred, dim=1)
 
-            target, prob, pred = target.data.cpu().numpy(), prob.data.cpu().numpy(), pred.data.cpu().numpy()
-            auc = roc_auc_score(target, prob, multi_class='ovr')
-            acc = accuracy_score(target, pred)
-            confusion_mat = confusion_matrix(target, pred)
-            nmi = normalized_mutual_info_score(target, pred)
-            ari = adjusted_rand_score(target, pred)
+            target_np, prob_np, pred_np = target.data.cpu().numpy(), prob.data.cpu().numpy(), pred.data.cpu().numpy()
+
+            # update test dict
+            for i in range(target_np.shape[0]):
+                cls = class_map[target_np[i]]
+                test_dict[pred_np[i]][cls] += 1
+
+            # update metrics
+            auc = roc_auc_score(target_np, prob_np, multi_class='ovr')
+            acc = accuracy_score(target_np, pred_np)
+            confusion_mat = confusion_matrix(target_np, pred_np)
+            nmi = normalized_mutual_info_score(target_np, pred_np)
+            ari = adjusted_rand_score(target_np, pred_np)
         test_acc += acc
         test_auc += auc
         test_confusion_mat += confusion_mat
@@ -85,6 +104,11 @@ def test(args):
         print('Confusion matrix on test data', file=f)
         print(f'{test_dataset.classes}', file=f)
         print(test_confusion_mat, file=f)
+
+    # display and save dict
+    print(test_dict)
+    with open('test_dict.pkl', 'wb+') as f:
+        pickle.dump(test_dict, f)
 
     # write csv
     assert os.path.isfile('../result.csv')

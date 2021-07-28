@@ -1,4 +1,4 @@
-import argparse, os
+import argparse, os, pickle
 from tqdm import tqdm
 
 import torch
@@ -38,6 +38,18 @@ def test(args):
     print(f'Num of test data: {len(test_dataset)}')
     test_loader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=True, pin_memory=True, num_workers=2, drop_last=True)
 
+    # initialize test dict
+    test_dict = dict()
+    for i in range(len(test_dataset.classes)):
+        test_dict[i] = dict()
+        for cls in test_dataset.classes:
+            test_dict[i][cls] = 0
+    
+    # initialize map
+    class_map = dict()
+    for i, cls in enumerate(test_dataset.classes):
+        class_map[i] = cls
+
     # prepare model
     print('##### Prepare Model #####')
     if args.pretrained:
@@ -70,6 +82,16 @@ def test(args):
     # perform KMeans to cluster features
     kmean = KMeans(n_clusters=len(test_dataset.classes))
     preds = kmean.fit_predict(feats)
+
+    # update test dict
+    for i in range(preds.shape[0]):
+        cls = class_map[targets[i]]
+        test_dict[preds[i]][cls] += 1
+
+    # display and save dict
+    print(test_dict)
+    with open('test_dict.pkl', 'wb+') as f:
+        pickle.dump(test_dict, f)
 
     # calculate accuracy and confusion matrix
     nmi = normalized_mutual_info_score(targets, preds)
