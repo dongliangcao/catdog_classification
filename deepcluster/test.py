@@ -16,7 +16,8 @@ import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 
 from util import AverageMeter, load_model
-from sklearn.metrics import normalized_mutual_info_score, adjusted_rand_score
+from sklearn.metrics import normalized_mutual_info_score, adjusted_rand_score, confusion_matrix, accuracy_score, precision_score, recall_score, f1_score
+from scipy.optimize import linear_sum_assignment as linear_assignment
 
 parser = argparse.ArgumentParser(description="""Train linear classifier on top
                                  of frozen convolutional layers of an AlexNet.""")
@@ -92,7 +93,16 @@ def main():
         os.makedirs(exp_log)
 
     # evaluate on validation set
-    nmi, ari = validate(val_loader, model, test_dict, class_map)
+    cf_matrix, nmi, ari, acc, prec, recall, f1 = validate(val_loader, model, test_dict, class_map)
+
+    print('Confusion matrix')
+    print(cf_matrix)
+    print(f'Accuracy score: {acc:.4f}')
+    print(f'Precision score: {prec:.4f}')
+    print(f'Recall score: {recall:.4f}')
+    print(f'F1 score: {f1:.4f}')
+    print(f'Normalized mutual information score: {nmi:.4f}')
+    print(f'Adjusted random score: {ari:.4f}')
 
     # display and save dict
     print(test_dict)
@@ -101,11 +111,16 @@ def main():
 
     # write csv
     assert os.path.isfile('../result.csv')
-    df = pd.read_csv('../result.csv', header=0, names=['method', 'nmi', 'ari'], dtype={'method': str, 'nmi': float, 'ari': float})
+    df = pd.read_csv('../result.csv', header=0, names=['method', 'nmi', 'ari', 'acc', 'prec', 'recall', 'f1'], 
+                    dtype={'method': str, 'nmi': float, 'ari': float, 'acc': float, 'prec': float, 'recall': float, 'f1': float})
     df = df.append(pd.DataFrame({
         'method': ['deepcluster'],
         'nmi': [nmi],
-        'ari': [ari]
+        'ari': [ari],
+        'acc': [acc],
+        'prec': [prec],
+        'recall': [recall],
+        'f1': [f1]
     }, index=[len(df.index)]))
     print(df)
     df.to_csv('../result.csv')
@@ -120,13 +135,11 @@ def forward(x, model):
     return x
 
 def validate(val_loader, model, test_dict, class_map):
-    batch_time = AverageMeter()
-    nmis = AverageMeter()
-    aris = AverageMeter()
-
+    cost = np.zeros(shape=(len(val_loader.dataset.classes), len(val_loader.dataset.classes)))
+    targets, preds = list(), list()
     # switch to evaluate mode
     model.eval()
-    end = time.time()
+    
     for (input_tensor, target) in tqdm(val_loader):
         target = target.cuda()
         with torch.no_grad():
@@ -136,7 +149,9 @@ def validate(val_loader, model, test_dict, class_map):
             prob = F.softmax(output, dim=1)
             pred = prob.argmax(dim=1)
 
-            target_np, pred_np =  target.data.cpu().numpy(), pred.data.cpu().numpy()
+            target_np, pred_np = target.data.cpu().numpy(), pred.data.cpu().numpy()
+            targets.append(target_np)
+            preds.append(pred_np)
 
             # update test_dict
             for i in range(target_np.shape[0]):
@@ -144,16 +159,26 @@ def validate(val_loader, model, test_dict, class_map):
                 test_dict[pred_np[i]][cls] += 1
 
             # update metrics
-            nmi = normalized_mutual_info_score(target_np, pred_np)
-            nmis.update(nmi)
-            ari = adjusted_rand_score(target_np, pred_np)
-            aris.update(ari)
+            cost += confusion_matrix(target_np, pred_np)
+    
+    preds, targets = np.array(preds).reshape(-1), np.array(targets).reshape(-1)
+    # linear assignment
+    _, col_ind = linear_assignment(cost, maximize=True)
 
-        # measure elapsed time
-        batch_time.update(time.time() - end)
-        end = time.time()
+    # update prediction according to result from linear assignment
+    preds_adj = np.zeros_like(preds)
+    for i in range(len(val_loader.dataset.classes)):
+        preds_adj[preds == i] = col_ind[i]
 
-    return nmis.avg, aris.avg
+    cf_matrix = confusion_matrix(targets, preds_adj)
+
+    nmi = normalized_mutual_info_score(targets, preds_adj)
+    ari = adjusted_rand_score(targets, preds_adj)
+    acc = accuracy_score(targets, preds_adj)
+    prec = precision_score(targets, preds_adj, average='macro')
+    recall = recall_score(targets, preds_adj, average='macro')
+    f1 = f1_score(targets, preds_adj, average='macro')
+    return cf_matrix, nmi, ari, acc, prec, recall, f1
 
 if __name__ == '__main__':
     main()

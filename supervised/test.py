@@ -10,7 +10,7 @@ from torchvision.datasets import ImageFolder
 from torchvision import transforms
 from models.vgg import VGG16
 
-from sklearn.metrics import accuracy_score, confusion_matrix, roc_auc_score, normalized_mutual_info_score, adjusted_rand_score
+from sklearn.metrics import accuracy_score, confusion_matrix, roc_auc_score, normalized_mutual_info_score, adjusted_rand_score, precision_score, recall_score, f1_score
 
 def test(args):
     # reproducibility
@@ -64,6 +64,9 @@ def test(args):
     test_confusion_mat = 0.0
     test_nmi = 0.0
     test_ari = 0.0
+    test_prec = 0.0
+    test_recall = 0.0
+    test_f1 = 0.0
     model.eval()
     for (imgs, target) in tqdm(test_loader):
         imgs, target = imgs.cuda(), target.cuda()
@@ -85,19 +88,31 @@ def test(args):
             confusion_mat = confusion_matrix(target_np, pred_np)
             nmi = normalized_mutual_info_score(target_np, pred_np)
             ari = adjusted_rand_score(target_np, pred_np)
+            prec = precision_score(target_np, pred_np, average='macro')
+            recall = recall_score(target_np, pred_np, average='macro')
+            f1 = f1_score(target_np, pred_np, average='macro')
         test_acc += acc
         test_auc += auc
         test_confusion_mat += confusion_mat
         test_nmi += nmi
         test_ari += ari
+        test_prec += prec
+        test_recall += recall
+        test_f1 += f1
     
     test_acc /= len(test_loader)
     test_auc /= len(test_loader)
     test_nmi /= len(test_loader)
     test_ari /= len(test_loader)
+    test_prec /= len(test_loader)
+    test_recall /= len(test_loader)
+    test_f1 /= len(test_loader)
 
     with open(logfile, 'a') as f:
         print(f'Accuracy on test data: {test_acc:.4f}', file=f)
+        print(f'Precision on test data: {test_prec:.4f}', file=f)
+        print(f'Recall on test data: {test_recall:.4f}', file=f)
+        print(f'F1-score on test data: {test_f1:.4f}', file=f)
         print(f'ROC AUC score on test data: {test_auc:.4f}', file=f)
         print(f'NMI score on test data: {test_nmi:.4f}', file=f)
         print(f'ARI score on test data: {test_ari:.4f}', file=f)
@@ -112,11 +127,16 @@ def test(args):
 
     # write csv
     assert os.path.isfile('../result.csv')
-    df = pd.read_csv('../result.csv', header=0, names=['method', 'nmi', 'ari'], dtype={'method': str, 'nmi': float, 'ari': float})
+    df = pd.read_csv('../result.csv', header=0, names=['method', 'nmi', 'ari', 'acc', 'prec', 'recall', 'f1'], 
+                    dtype={'method': str, 'nmi': float, 'ari': float, 'acc': float, 'prec': float, 'recall': float, 'f1': float})
     df = df.append(pd.DataFrame({
         'method': ['supervised'],
-        'nmi': [test_nmi],
-        'ari': [test_ari]
+        'nmi': [nmi],
+        'ari': [ari],
+        'acc': [acc],
+        'prec': [prec],
+        'recall': [recall],
+        'f1': [f1]
     }, index=[len(df.index)]))
     print(df)
     df.to_csv('../result.csv')

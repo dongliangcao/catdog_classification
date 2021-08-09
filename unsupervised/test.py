@@ -1,4 +1,5 @@
 import argparse, os, pickle
+import re
 from tqdm import tqdm
 
 import torch
@@ -10,10 +11,12 @@ from models.vgg import VGG16
 
 import numpy as np
 import pandas as pd
+from sklearn.metrics import confusion_matrix, f1_score, accuracy_score, recall_score, precision_score
 from sklearn.metrics.cluster import normalized_mutual_info_score, adjusted_rand_score
 from sklearn.cluster import KMeans
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
+from scipy.optimize import linear_sum_assignment as linear_assignment
 
 def test(args):
     # reproducibility
@@ -44,7 +47,7 @@ def test(args):
         test_dict[i] = dict()
         for cls in test_dataset.classes:
             test_dict[i][cls] = 0
-    
+
     # initialize map
     class_map = dict()
     for i, cls in enumerate(test_dataset.classes):
@@ -88,30 +91,61 @@ def test(args):
         cls = class_map[targets[i]]
         test_dict[preds[i]][cls] += 1
 
+    # update confusion matrix
+    cost = confusion_matrix(targets, preds)
+    _, col_ind = linear_assignment(cost, maximize=True)
+
+    # update prediction according to result from linear assignment
+    preds_adj = np.zeros_like(preds)
+    for i in range(len(test_dataset.classes)):
+        preds_adj[preds == i] = col_ind[i]
+
     # display and save dict
     print(test_dict)
     with open('test_dict.pkl', 'wb+') as f:
         pickle.dump(test_dict, f)
 
-    # calculate accuracy and confusion matrix
+    # calculate metrics
     nmi = normalized_mutual_info_score(targets, preds)
     ari = adjusted_rand_score(targets, preds)
     print(f'Normalized mutual information score: {nmi:.4f}')
     print(f'Adjusted random score: {ari:.4f}')
 
+    cf_matrix = confusion_matrix(targets, preds_adj)
+    print('Confusion matrix')
+    print(cf_matrix)
+
+    acc = accuracy_score(targets, preds_adj)
+    prec = precision_score(targets, preds_adj, average='macro')
+    recall = recall_score(targets, preds_adj, average='macro')
+    f1 = f1_score(targets, preds_adj, average='macro')
+    print(f'Accuracy score: {acc:.4f}')
+    print(f'Precision score: {prec:.4f}')
+    print(f'Recall score: {recall:.4f}')
+    print(f'F1 score: {f1:.4f}')
+
     # write csv
-    df = pd.read_csv('../result.csv', header=0, names=['method', 'nmi', 'ari'], dtype={'method': str, 'nmi': float, 'ari': float})
+    df = pd.read_csv('../result.csv', header=0, names=['method', 'nmi', 'ari', 'acc', 'prec', 'recall', 'f1'], 
+                    dtype={'method': str, 'nmi': float, 'ari': float, 'acc': float, 'prec': float, 'recall': float, 'f1': float})
     if args.pretrained:
         df = df.append(pd.DataFrame({
             'method': ['unsupervised_pretrain'],
             'nmi': [nmi],
-            'ari': [ari]
+            'ari': [ari],
+            'acc': [acc],
+            'prec': [prec],
+            'recall': [recall],
+            'f1': [f1]
         }, index=[len(df.index)]))
     else:
         df = df.append(pd.DataFrame({
             'method': ['unsupervised'],
             'nmi': [nmi],
-            'ari': [ari]
+            'ari': [ari],
+            'acc': [acc],
+            'prec': [prec],
+            'recall': [recall],
+            'f1': [f1]
         }, index=[len(df.index)]))
     print(df)
     df.to_csv('../result.csv')
