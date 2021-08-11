@@ -98,7 +98,7 @@ def test(args):
     # update prediction according to result from linear assignment
     preds_adj = np.zeros_like(preds)
     for i in range(len(test_dataset.classes)):
-        preds_adj[preds == i] = col_ind[i]
+        preds_adj[preds == col_ind[i]] = i
 
     # display and save dict
     print(test_dict)

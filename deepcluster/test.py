@@ -158,17 +158,18 @@ def validate(val_loader, model, test_dict, class_map):
                 cls = class_map[target_np[i]]
                 test_dict[pred_np[i]][cls] += 1
 
-            # update metrics
-            cost += confusion_matrix(target_np, pred_np, labels=np.arange(0, len(val_loader.dataset.classes)))
+            # # update metrics
+            # cost += confusion_matrix(target_np, pred_np, labels=np.arange(0, len(val_loader.dataset.classes)))
     
     preds, targets = np.array(preds).reshape(-1), np.array(targets).reshape(-1)
-    # linear assignment
+    # update confusion matrix
+    cost = confusion_matrix(targets, preds)
     _, col_ind = linear_assignment(cost, maximize=True)
-
+    
     # update prediction according to result from linear assignment
     preds_adj = np.zeros_like(preds)
     for i in range(len(val_loader.dataset.classes)):
-        preds_adj[preds == i] = col_ind[i]
+        preds_adj[preds == col_ind[i]] = i
 
     cf_matrix = confusion_matrix(targets, preds_adj)
 
