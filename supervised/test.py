@@ -1,6 +1,7 @@
 import argparse, os, pickle
 from tqdm import tqdm
 
+import numpy as np
 import pandas as pd
 
 import torch
@@ -85,7 +86,7 @@ def test(args):
             # update metrics
             auc = roc_auc_score(target_np, prob_np, multi_class='ovr')
             acc = accuracy_score(target_np, pred_np)
-            confusion_mat = confusion_matrix(target_np, pred_np)
+            confusion_mat = confusion_matrix(target_np, pred_np, labels=np.arange(0, len(test_loader.dataset.classes)))
             nmi = normalized_mutual_info_score(target_np, pred_np)
             ari = adjusted_rand_score(target_np, pred_np)
             prec = precision_score(target_np, pred_np, average='macro')

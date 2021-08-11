@@ -159,7 +159,7 @@ def validate(val_loader, model, test_dict, class_map):
                 test_dict[pred_np[i]][cls] += 1
 
             # update metrics
-            cost += confusion_matrix(target_np, pred_np)
+            cost += confusion_matrix(target_np, pred_np, labels=np.arange(0, len(val_loader.dataset.classes)))
     
     preds, targets = np.array(preds).reshape(-1), np.array(targets).reshape(-1)
     # linear assignment
