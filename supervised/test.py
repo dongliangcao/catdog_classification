@@ -3,6 +3,7 @@ from tqdm import tqdm
 
 import numpy as np
 import pandas as pd
+import seaborn as sns
 
 import torch
 import torch.nn.functional as F
@@ -120,6 +121,10 @@ def test(args):
         print('Confusion matrix on test data', file=f)
         print(f'{test_dataset.classes}', file=f)
         print(test_confusion_mat, file=f)
+
+    # plot heatmap
+    sns_plot = sns.heatmap(test_confusion_mat, annot=True)
+    sns_plot.figure.savefig('heatmap.png')
 
     # display and save dict
     print(test_dict)

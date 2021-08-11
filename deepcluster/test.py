@@ -6,6 +6,7 @@ from tqdm import tqdm
 
 import numpy as np
 import pandas as pd
+import seaborn as sns
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -172,6 +173,9 @@ def validate(val_loader, model, test_dict, class_map):
         preds_adj[preds == col_ind[i]] = i
 
     cf_matrix = confusion_matrix(targets, preds_adj)
+    # plot heatmap
+    sns_plot = sns.heatmap(cf_matrix, annot=True)
+    sns_plot.figure.savefig('heatmap.png')
 
     nmi = normalized_mutual_info_score(targets, preds_adj)
     ari = adjusted_rand_score(targets, preds_adj)

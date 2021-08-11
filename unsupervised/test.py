@@ -11,6 +11,7 @@ from models.vgg import VGG16
 
 import numpy as np
 import pandas as pd
+import seaborn as sns
 from sklearn.metrics import confusion_matrix, f1_score, accuracy_score, recall_score, precision_score
 from sklearn.metrics.cluster import normalized_mutual_info_score, adjusted_rand_score
 from sklearn.cluster import KMeans
@@ -114,6 +115,10 @@ def test(args):
     cf_matrix = confusion_matrix(targets, preds_adj)
     print('Confusion matrix')
     print(cf_matrix)
+
+    # plot heatmap
+    sns_plot = sns.heatmap(cf_matrix, annot=True)
+    sns_plot.figure.savefig('heatmap.png')
 
     acc = accuracy_score(targets, preds_adj)
     prec = precision_score(targets, preds_adj, average='macro')
