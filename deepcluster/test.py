@@ -28,11 +28,20 @@ parser.add_argument('--model_path', type=str, help='path to model', default='run
 parser.add_argument('--exp', type=str, default='runs/eval', help='exp folder')
 parser.add_argument('--workers', default=2, type=int,
                     help='number of data loading workers (default: 2)')
-parser.add_argument('--batch_size', default=64, type=int,
-                    help='mini-batch size (default: 64)')
+parser.add_argument('--batch_size', default=32, type=int,
+                    help='mini-batch size (default: 32)')
+parser.add_argument('--lr', default=0.01, type=float, help='learning rate')
 parser.add_argument('--seed', type=int, default=31, help='random seed')
 parser.add_argument('--verbose', action='store_true', help='chatty')
 
+class RegLog(nn.Module):
+    """Creates logistic regression on top of frozen features"""
+    def __init__(self, num_labels):
+        super(RegLog, self).__init__()
+        self.top_layer = nn.Linear(4096, num_labels)
+
+    def forward(self, x):
+        return self.top_layer(x)
 
 def main():
     global args
@@ -50,8 +59,15 @@ def main():
     model.cuda()
     model.eval()
     
+    # freeze the features layers
+    for param in model.features.parameters():
+        param.requires_grad = False
+
+    # define loss function (criterion) and optimizer
+    criterion = nn.CrossEntropyLoss().cuda()
 
     # data loading code
+    traindir = os.path.join(args.data, 'train')
     valdir = os.path.join(args.data, 'test')
 
     normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
@@ -61,6 +77,18 @@ def main():
                             transforms.CenterCrop(224),
                             transforms.ToTensor(),
                             normalize]
+
+    transformations_train = [transforms.Resize(256),
+                            transforms.CenterCrop(256),
+                            transforms.RandomCrop(224),
+                            transforms.RandomHorizontalFlip(),
+                            transforms.ToTensor(),
+                            normalize]
+
+    train_dataset = datasets.ImageFolder(
+        traindir,
+        transform=transforms.Compose(transformations_train)
+    )
 
     val_dataset = datasets.ImageFolder(
         valdir,
@@ -81,12 +109,32 @@ def main():
 
     # prepare data
     print('### Prepare data ###')
+    print(f'# of training data: {len(train_dataset)}')
     print(f'# of validation data: {len(val_dataset)}')
     val_loader = torch.utils.data.DataLoader(val_dataset,
-                                             batch_size=int(args.batch_size/2),
-                                             shuffle=True,
+                                             batch_size=args.batch_size,
+                                             shuffle=False,
                                              drop_last=True,
                                              num_workers=args.workers)
+
+    train_loader = torch.utils.data.DataLoader(train_dataset,
+                                               batch_size=args.batch_size,
+                                               shuffle=True,
+                                               num_workers=args.workers,
+                                               pin_memory=True)
+
+    reglog = RegLog(len(train_dataset.classes)).cuda()
+    optimizer = torch.optim.SGD(
+        list(filter(lambda x: x.requires_grad, model.parameters())),
+        lr=args.lr,
+        momentum=0.9,
+        weight_decay=10**-4
+    )
+
+    # train the classifier
+    print('### Train top layer ###')
+    for epoch in range(1, 11):
+        train(train_loader, model, reglog, criterion, optimizer, epoch)
 
     # create logs
     exp_log = os.path.join(args.exp, 'log')
@@ -94,7 +142,8 @@ def main():
         os.makedirs(exp_log)
 
     # evaluate on validation set
-    cf_matrix, nmi, ari, acc, prec, recall, f1 = validate(val_loader, model, test_dict, class_map)
+    print('### Validate model ###')
+    cf_matrix, nmi, ari, acc, prec, recall, f1 = validate(val_loader, model, reglog, test_dict, class_map)
 
     print('Confusion matrix')
     print(cf_matrix)
@@ -132,10 +181,9 @@ def forward(x, model):
     x = model.features(x)
     x = x.view(x.size(0), -1)
     x = model.classifier(x)
-    x = model.top_layer(x)
     return x
 
-def validate(val_loader, model, test_dict, class_map):
+def validate(val_loader, model, reglog, test_dict, class_map):
     cost = np.zeros(shape=(len(val_loader.dataset.classes), len(val_loader.dataset.classes)))
     targets, preds = list(), list()
     # switch to evaluate mode
@@ -147,6 +195,7 @@ def validate(val_loader, model, test_dict, class_map):
             input_var =input_tensor.cuda()
 
             output = forward(input_var, model)
+            output = reglog(output)
             prob = F.softmax(output, dim=1)
             pred = prob.argmax(dim=1)
 
@@ -184,6 +233,44 @@ def validate(val_loader, model, test_dict, class_map):
     recall = recall_score(targets, preds_adj, average='macro')
     f1 = f1_score(targets, preds_adj, average='macro')
     return cf_matrix, nmi, ari, acc, prec, recall, f1
+
+def train(train_loader, model, reglog, criterion, optimizer, epoch):
+    losses = AverageMeter()
+
+    # freeze also batch norm layers
+    model.eval()
+
+    for i, (input, target) in enumerate(train_loader):
+        #adjust learning rate
+        learning_rate_decay(optimizer, len(train_loader) * epoch + i, args.lr)
+
+        target = target.cuda()
+        input = input.cuda()
+        
+        # compute output
+        output = forward(input, model)
+        output = reglog(output)
+
+        # compute loss
+        loss = criterion(output, target)
+        
+        # measure accuracy and record loss
+        losses.update(loss.item(), input.size(0))
+
+        # compute gradient and do SGD step
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+
+    if args.verbose:
+        print('Epoch: [{0}/{1}]\t'
+                'Loss {loss.val:.4f} ({loss.avg:.4f})\t'
+                .format(epoch, 10, loss=losses))
+
+def learning_rate_decay(optimizer, t, lr_0):
+    for param_group in optimizer.param_groups:
+        lr = lr_0 / np.sqrt(1 + lr_0 * param_group['weight_decay'] * t)
+        param_group['lr'] = lr
 
 if __name__ == '__main__':
     main()
